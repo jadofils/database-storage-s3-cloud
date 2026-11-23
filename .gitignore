@@ -2,7 +2,10 @@
 .vscode/
 
 # Local environment and logs
+# Never commit secrets or local settings: any .env file, in any folder (an example file is allowed)
 .env
+.env.*
+!.env.example
 *.log
 
 docs/source/*.docx
