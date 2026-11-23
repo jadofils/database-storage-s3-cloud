@@ -1,0 +1,22 @@
+# CloudFormation Git sync deployment file for stack "onward-dev-photos-database" (eu-west-1).
+# Needs onward-dev-photos-network. The password is created by RDS in Secrets Manager.
+template-file-path: infrastructure/templates/5-database.yaml
+
+parameters:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev
+  Purpose: photos
+
+  EngineVersion: '17'
+  InstanceClass: db.t4g.micro
+  AllocatedStorageGb: '20'
+  MaxAllocatedStorageGb: '50'
+  BackupRetentionDays: '7'
+  # Set to 'false' and merge only when tearing the lab down.
+  DeletionProtection: 'true'
+
+tags:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev

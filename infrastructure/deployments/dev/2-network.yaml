@@ -1,0 +1,17 @@
+# CloudFormation Git sync deployment file for stack "onward-dev-photos-network" (eu-west-1).
+# Values not listed use the template defaults (VPC 10.20.0.0/16, two zones, three subnet tiers).
+template-file-path: infrastructure/templates/2-network.yaml
+
+parameters:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev
+  Purpose: photos
+
+  # CloudFront origin-facing prefix list in eu-west-1 (only CloudFront may reach the ALB).
+  CloudFrontPrefixListId: pl-4fa04526
+
+tags:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev

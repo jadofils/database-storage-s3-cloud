@@ -1,0 +1,513 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1: network for the delivery photo service in eu-west-1.
+  One VPC across two Availability Zones with three subnet tiers (public for the load balancer,
+  private for the containers, isolated for the database), VPC endpoints instead of a NAT
+  gateway, and the security groups that connect the tiers.
+  Deployed by CloudFormation Git sync from infrastructure/deployments/dev/2-network.yaml.
+
+# Reading order: Parameters -> 1 VPC -> 2 Subnets -> 3 Routing -> 4 Security groups -> 5 VPC endpoints -> Outputs
+#
+# Traffic path: viewer -> CloudFront -> ALB (public) -> containers (private) -> database (isolated)
+#                                                                          \-> S3 photos (gateway endpoint)
+# Nothing in the private or isolated subnets has a route to the internet.
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+  VpcCidr:
+    Type: String
+    Default: 10.20.0.0/16
+  PublicSubnet1Cidr:
+    Type: String
+    Default: 10.20.0.0/24
+  PublicSubnet2Cidr:
+    Type: String
+    Default: 10.20.1.0/24
+  AppSubnet1Cidr:
+    Type: String
+    Default: 10.20.10.0/24
+  AppSubnet2Cidr:
+    Type: String
+    Default: 10.20.11.0/24
+  DbSubnet1Cidr:
+    Type: String
+    Default: 10.20.20.0/24
+  DbSubnet2Cidr:
+    Type: String
+    Default: 10.20.21.0/24
+
+  ApplicationPort:
+    Type: Number
+    Default: 8080
+  DatabasePort:
+    Type: Number
+    Default: 5432
+
+  # AWS-managed list of CloudFront's origin-facing IP ranges. The ID differs per Region.
+  # Look it up with: aws ec2 describe-managed-prefix-lists --region eu-west-1
+  #   --filters Name=prefix-list-name,Values=com.amazonaws.global.cloudfront.origin-facing
+  CloudFrontPrefixListId:
+    Type: String
+    Default: pl-4fa04526
+    AllowedPattern: '^pl-[0-9a-f]+$'
+
+Resources:
+  # ============================================================ 1. VPC
+  # The private network that holds every part of the photo service in this Region.
+  Vpc:
+    Type: AWS::EC2::VPC
+    Properties:
+      CidrBlock: !Ref VpcCidr
+      EnableDnsSupport: true
+      EnableDnsHostnames: true   # needed for the interface endpoints' private DNS names
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-vpc'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # The VPC's door to the internet. Only the public subnets (the load balancer) use it.
+  InternetGateway:
+    Type: AWS::EC2::InternetGateway
+    Properties:
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-igw'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  InternetGatewayAttachment:
+    Type: AWS::EC2::VPCGatewayAttachment
+    Properties:
+      VpcId: !Ref Vpc
+      InternetGatewayId: !Ref InternetGateway
+
+  # ============================================================ 2. Subnets (two of each, one per zone)
+  # Public: the load balancer only. Losing one zone leaves the other serving.
+  PublicSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet1Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-public-1'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref PublicSubnet2Cidr
+      MapPublicIpOnLaunch: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-public-2'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Private: the containers. No public IPs and no internet route; AWS services via endpoints.
+  AppSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref AppSubnet1Cidr
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-app-1'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  AppSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref AppSubnet2Cidr
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-app-2'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Isolated: the database. Its route table has only the local VPC route.
+  DbSubnet1:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [0, !GetAZs '']
+      CidrBlock: !Ref DbSubnet1Cidr
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-db-1'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  DbSubnet2:
+    Type: AWS::EC2::Subnet
+    Properties:
+      VpcId: !Ref Vpc
+      AvailabilityZone: !Select [1, !GetAZs '']
+      CidrBlock: !Ref DbSubnet2Cidr
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-db-2'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 3. Routing
+  # Public route table: the only one with 0.0.0.0/0, pointing at the internet gateway.
+  PublicRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-public-rt'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  PublicDefaultRoute:
+    Type: AWS::EC2::Route
+    DependsOn: InternetGatewayAttachment
+    Properties:
+      RouteTableId: !Ref PublicRouteTable
+      DestinationCidrBlock: 0.0.0.0/0
+      GatewayId: !Ref InternetGateway
+
+  PublicSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet1
+      RouteTableId: !Ref PublicRouteTable
+
+  PublicSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref PublicSubnet2
+      RouteTableId: !Ref PublicRouteTable
+
+  # App route table: no 0.0.0.0/0 and no NAT. The S3 gateway endpoint adds its own route here.
+  AppRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-app-rt'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  AppSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet1
+      RouteTableId: !Ref AppRouteTable
+
+  AppSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref AppSubnet2
+      RouteTableId: !Ref AppRouteTable
+
+  # Database route table: local VPC route only. The database cannot reach or be reached from outside.
+  DbRouteTable:
+    Type: AWS::EC2::RouteTable
+    Properties:
+      VpcId: !Ref Vpc
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-db-rt'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  DbSubnet1RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSubnet1
+      RouteTableId: !Ref DbRouteTable
+
+  DbSubnet2RouteTableAssociation:
+    Type: AWS::EC2::SubnetRouteTableAssociation
+    Properties:
+      SubnetId: !Ref DbSubnet2
+      RouteTableId: !Ref DbRouteTable
+
+  # ============================================================ 4. Security groups (a chain: each tier accepts only the tier in front)
+  # Load balancer: accepts HTTP only from CloudFront's IP ranges, so viewers cannot skip CloudFront.
+  AlbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Project}-${Environment}-${Purpose}-alb-sg'
+      GroupDescription: Load balancer - HTTP from CloudFront only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - Description: HTTP from CloudFront origin-facing ranges
+          IpProtocol: tcp
+          FromPort: 80
+          ToPort: 80
+          SourcePrefixListId: !Ref CloudFrontPrefixListId
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-alb-sg'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Containers: accept the application port only from the load balancer.
+  TaskSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Project}-${Environment}-${Purpose}-task-sg'
+      GroupDescription: Photo containers - app port from the load balancer only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - Description: App port from the load balancer
+          IpProtocol: tcp
+          FromPort: !Ref ApplicationPort
+          ToPort: !Ref ApplicationPort
+          SourceSecurityGroupId: !Ref AlbSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-task-sg'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Database: accepts PostgreSQL only from the containers. No other source, no public access.
+  DbSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Project}-${Environment}-${Purpose}-db-sg'
+      GroupDescription: Photo database - PostgreSQL from the containers only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - Description: PostgreSQL from the photo containers
+          IpProtocol: tcp
+          FromPort: !Ref DatabasePort
+          ToPort: !Ref DatabasePort
+          SourceSecurityGroupId: !Ref TaskSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-db-sg'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Interface endpoints: accept HTTPS only from the containers.
+  EndpointSecurityGroup:
+    Type: AWS::EC2::SecurityGroup
+    Properties:
+      GroupName: !Sub '${Project}-${Environment}-${Purpose}-endpoint-sg'
+      GroupDescription: VPC interface endpoints - HTTPS from the containers only
+      VpcId: !Ref Vpc
+      SecurityGroupIngress:
+        - Description: HTTPS from the photo containers
+          IpProtocol: tcp
+          FromPort: 443
+          ToPort: 443
+          SourceSecurityGroupId: !Ref TaskSecurityGroup
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-endpoint-sg'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 5. VPC endpoints (private paths to AWS, instead of a NAT gateway)
+  # S3 gateway endpoint: how the containers reach the photo bucket and ECR's image layers.
+  # The photo bucket policy refuses photo downloads that do not come through this endpoint.
+  # Its own policy also limits it to those two buckets, so it cannot be used to copy data elsewhere.
+  S3GatewayEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Gateway
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.s3'
+      RouteTableIds:
+        - !Ref AppRouteTable
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: EcrImageLayers
+            Effect: Allow
+            Principal: '*'
+            Action: s3:GetObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::prod-${AWS::Region}-starport-layer-bucket/*'
+          - Sid: PhotoBucket
+            Effect: Allow
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+              - s3:PutObject
+              - s3:DeleteObject
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${Project}-${Environment}-${Purpose}-${AWS::AccountId}/*'
+
+  # ECR API: the containers' image pull starts here (authentication and image manifest).
+  EcrApiEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.api'
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref AppSubnet1
+        - !Ref AppSubnet2
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+
+  # ECR Docker registry: the image pull itself.
+  EcrDkrEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.ecr.dkr'
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref AppSubnet1
+        - !Ref AppSubnet2
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+
+  # CloudWatch Logs: where the containers' logs go.
+  LogsEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.logs'
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref AppSubnet1
+        - !Ref AppSubnet2
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+
+  # Secrets Manager: the application reads the database password here at runtime.
+  SecretsManagerEndpoint:
+    Type: AWS::EC2::VPCEndpoint
+    Properties:
+      VpcId: !Ref Vpc
+      VpcEndpointType: Interface
+      ServiceName: !Sub 'com.amazonaws.${AWS::Region}.secretsmanager'
+      PrivateDnsEnabled: true
+      SubnetIds:
+        - !Ref AppSubnet1
+        - !Ref AppSubnet2
+      SecurityGroupIds:
+        - !Ref EndpointSecurityGroup
+
+Outputs:
+  VpcId:
+    Value: !Ref Vpc
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-vpc-id'
+  PublicSubnetIds:
+    Value: !Join [',', [!Ref PublicSubnet1, !Ref PublicSubnet2]]
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-public-subnet-ids'
+  AppSubnetIds:
+    Value: !Join [',', [!Ref AppSubnet1, !Ref AppSubnet2]]
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-app-subnet-ids'
+  DbSubnetIds:
+    Value: !Join [',', [!Ref DbSubnet1, !Ref DbSubnet2]]
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-subnet-ids'
+  AlbSecurityGroupId:
+    Value: !Ref AlbSecurityGroup
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-alb-sg-id'
+  TaskSecurityGroupId:
+    Value: !Ref TaskSecurityGroup
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-task-sg-id'
+  DbSecurityGroupId:
+    Value: !Ref DbSecurityGroup
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-sg-id'
+  S3GatewayEndpointId:
+    Description: The photo bucket policy allows photo downloads only through this endpoint.
+    Value: !Ref S3GatewayEndpoint
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-s3-endpoint-id'

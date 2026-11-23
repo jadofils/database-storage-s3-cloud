@@ -1,0 +1,16 @@
+# CloudFormation Git sync deployment file for stack "onward-dev-photos-replica-storage".
+# REGION: eu-west-2 (London). This file is synced by a second Git sync configuration created in
+# eu-west-2, using the eu-west-2 connection from the bootstrap stack.
+# Create it before onward-dev-photos-storage: replication needs this bucket to exist.
+template-file-path: infrastructure/templates/3-replica-storage.yaml
+
+parameters:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev
+  Purpose: photos
+
+tags:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev

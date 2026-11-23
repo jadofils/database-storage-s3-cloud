@@ -1,0 +1,30 @@
+# CloudFormation Git sync deployment file for stack "onward-dev-photos-service" (eu-west-1).
+# Needs registry (an image), network, storage and database.
+template-file-path: infrastructure/templates/6-service.yaml
+
+parameters:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev
+  Purpose: photos
+
+  # RELEASE: set to the sha-<commit> tag the app's CD workflow pushed, then merge.
+  ImageTag: latest
+
+  # Containers: 0.5 vCPU / 1 GB each; 2 normally (one per zone), up to 4 on busy days.
+  TaskCpu: '512'
+  TaskMemory: '1024'
+  MinTasks: '2'
+  MaxTasks: '4'
+  CpuTargetPercent: '50'
+  LogRetentionDays: '14'
+  MaxUploadMb: '10'
+
+  # Cost guardrail: emails at 80% actual and 100% forecast of the monthly budget.
+  MonthlyBudgetUsd: '100'
+  BudgetAlertEmail: sezikeyejadofils100@gmail.com
+
+tags:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev

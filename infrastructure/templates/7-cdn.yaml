@@ -1,0 +1,96 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1 (stretch): Amazon CloudFront in front of the photo
+  application. Viewers in any city connect to a nearby edge location over HTTPS; photos are
+  cached at the edge, so repeat views are fast and do not reach the containers or S3.
+  Deployed by CloudFormation Git sync from infrastructure/deployments/dev/7-cdn.yaml.
+
+# Reading order: Parameters -> 1 Distribution -> Outputs
+#
+# Two kinds of request, two cache rules:
+#   /api/photos/*/image  -> cached at the edge (a photo never changes once uploaded)
+#   everything else      -> never cached (pages, uploads, the gallery list), passed to the ALB
+# CloudFront is the only way in: the ALB's security group accepts CloudFront's ranges only.
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+  PriceClass:
+    Type: String
+    Default: PriceClass_200
+    AllowedValues:
+      - PriceClass_100
+      - PriceClass_200
+      - PriceClass_All
+    Description: PriceClass_200 includes edge locations in Africa (customers) and Europe, without the most expensive ones.
+
+Resources:
+  # ============================================================ 1. Distribution
+  # Managed policy IDs (AWS-owned, the same in every account):
+  #   658327ea-f89d-4fab-a63d-7e88639e58f6  CachingOptimized   - cache by URL, gzip/brotli
+  #   4135ea2d-6df8-44a3-9df3-4b5a84be39ad  CachingDisabled    - never cache
+  #   b689b0a8-53d0-40ab-baf2-68738e2966ac  AllViewerExceptHostHeader - pass query, cookies, headers (not Host) to the ALB
+  Distribution:
+    Type: AWS::CloudFront::Distribution
+    Properties:
+      DistributionConfig:
+        Comment: !Sub '${Project}-${Environment}-${Purpose} delivery photo service'
+        Enabled: true
+        HttpVersion: http2and3
+        IPV6Enabled: true
+        PriceClass: !Ref PriceClass
+        Origins:
+          - Id: photos-alb
+            DomainName:
+              Fn::ImportValue: !Sub '${Project}-${Environment}-${Purpose}-alb-dns'
+            CustomOriginConfig:
+              HTTPPort: 80
+              OriginProtocolPolicy: http-only   # no custom domain/certificate on the ALB in this lab
+              OriginReadTimeout: 30
+        # Pages, the gallery list, uploads, delete and restore: always fresh from the application.
+        DefaultCacheBehavior:
+          TargetOriginId: photos-alb
+          ViewerProtocolPolicy: redirect-to-https
+          AllowedMethods: [GET, HEAD, OPTIONS, PUT, POST, PATCH, DELETE]
+          CachedMethods: [GET, HEAD]
+          Compress: true
+          CachePolicyId: 4135ea2d-6df8-44a3-9df3-4b5a84be39ad
+          OriginRequestPolicyId: b689b0a8-53d0-40ab-baf2-68738e2966ac
+        # The photos themselves: cached at the edge for as long as the app's Cache-Control allows.
+        CacheBehaviors:
+          - PathPattern: /api/photos/*/image
+            TargetOriginId: photos-alb
+            ViewerProtocolPolicy: redirect-to-https
+            AllowedMethods: [GET, HEAD]
+            CachedMethods: [GET, HEAD]
+            Compress: true
+            CachePolicyId: 658327ea-f89d-4fab-a63d-7e88639e58f6
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  DistributionId:
+    Value: !Ref Distribution
+  PhotoServiceUrl:
+    Description: The one public address of the photo service.
+    Value: !Sub 'https://${Distribution.DomainName}'

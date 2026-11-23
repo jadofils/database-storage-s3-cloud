@@ -1,0 +1,16 @@
+# CloudFormation Git sync deployment file for stack "onward-dev-photos-cdn" (eu-west-1; CloudFront is global).
+# Needs onward-dev-photos-service (the ALB is the origin). Its output PhotoServiceUrl is the app's address.
+template-file-path: infrastructure/templates/7-cdn.yaml
+
+parameters:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev
+  Purpose: photos
+
+  PriceClass: PriceClass_200
+
+tags:
+  Project: onward
+  Owner: Jado Fils SEZIKEYE
+  Environment: dev

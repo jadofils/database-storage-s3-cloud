@@ -1,0 +1,223 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1: the primary store for delivery photos in eu-west-1.
+  A private, versioned S3 bucket that copies every photo to the replica bucket in eu-west-2,
+  and refuses photo downloads that do not come from the application inside the VPC.
+  Deployed by CloudFormation Git sync from infrastructure/deployments/dev/4-storage.yaml.
+  Needs 2-network (endpoint ID) and 3-replica-storage (in eu-west-2) first.
+
+# Reading order: Parameters -> 1 Replication role -> 2 Photo bucket -> 3 Bucket policy -> Outputs
+#
+# How each Head of Operations / Head of Security need is met here:
+#   deleted by mistake   -> versioning: a delete only adds a "delete marker"; the photo stays as an older version
+#   bucket or Region lost -> replication to eu-west-2; deletions are NOT replicated
+#   no direct access      -> Block Public Access + policy: downloads only through the VPC endpoint
+#   no wiping             -> nobody may permanently delete a photo version
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+  ReplicaStorageClass:
+    Type: String
+    Default: GLACIER_IR
+    AllowedValues:
+      - STANDARD
+      - STANDARD_IA
+      - GLACIER_IR
+    Description: The replica is read only in a disaster, so a cheaper storage class fits.
+  DeletedVersionRetentionDays:
+    Type: Number
+    Default: 90
+    MinValue: 30
+    Description: How long a deleted or replaced photo can still be restored from the primary bucket.
+  IntelligentTieringAfterDays:
+    Type: Number
+    Default: 30
+    MinValue: 0
+    Description: Older photos move to Intelligent-Tiering, which lowers cost when they stop being viewed.
+
+Resources:
+  # ============================================================ 1. Replication role
+  # S3 assumes this role to read new photo versions here and write them to the replica bucket.
+  ReplicationRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Project}-${Environment}-${Purpose}-replication-role'
+      Description: Used by S3 to copy delivery photos to the replica bucket in the second Region.
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Service: s3.amazonaws.com
+            Action: sts:AssumeRole
+      ManagedPolicyArns:
+        - !Ref ReplicationPolicy
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # Read from the photo bucket, write to the replica bucket. Bucket ARNs are built from the
+  # naming pattern, because exports do not cross Regions and the bucket must not depend on the role.
+  ReplicationPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${Project}-${Environment}-${Purpose}-replication-policy'
+      Description: Copy delivery photos from the primary bucket to the replica bucket.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: ReadReplicationConfiguration
+            Effect: Allow
+            Action:
+              - s3:GetReplicationConfiguration
+              - s3:ListBucket
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${Project}-${Environment}-${Purpose}-${AWS::AccountId}'
+          - Sid: ReadSourceVersions
+            Effect: Allow
+            Action:
+              - s3:GetObjectVersionForReplication
+              - s3:GetObjectVersionAcl
+              - s3:GetObjectVersionTagging
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${Project}-${Environment}-${Purpose}-${AWS::AccountId}/*'
+          - Sid: WriteReplicas
+            Effect: Allow
+            Action:
+              - s3:ReplicateObject
+              - s3:ReplicateTags
+            Resource: !Sub 'arn:${AWS::Partition}:s3:::${Project}-${Environment}-${Purpose}-replica-${AWS::AccountId}/*'
+
+  # ============================================================ 2. Photo bucket
+  # Private and versioned. Kept (Retain) if the stack is deleted: photos are evidence.
+  PhotoBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${Project}-${Environment}-${Purpose}-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      # Every new photo under photos/ is copied to the replica bucket in the second Region.
+      # Delete markers are not replicated, so a photo deleted here is still whole in the replica.
+      ReplicationConfiguration:
+        Role: !GetAtt ReplicationRole.Arn
+        Rules:
+          - Id: copy-photos-to-second-region
+            Status: Enabled
+            Priority: 1
+            Filter:
+              Prefix: photos/
+            DeleteMarkerReplication:
+              Status: Disabled
+            Destination:
+              Bucket: !Sub 'arn:${AWS::Partition}:s3:::${Project}-${Environment}-${Purpose}-replica-${AWS::AccountId}'
+              StorageClass: !Ref ReplicaStorageClass
+      # Cost rules: old photos move to Intelligent-Tiering; deleted or replaced versions are
+      # removed after the recovery window (the replica still holds them); unfinished uploads are cleaned up.
+      LifecycleConfiguration:
+        Rules:
+          - Id: tier-older-photos
+            Status: Enabled
+            Prefix: photos/
+            Transitions:
+              - StorageClass: INTELLIGENT_TIERING
+                TransitionInDays: !Ref IntelligentTieringAfterDays
+          - Id: expire-deleted-versions
+            Status: Enabled
+            NoncurrentVersionExpiration:
+              NoncurrentDays: !Ref DeletedVersionRetentionDays
+          - Id: abort-incomplete-uploads
+            Status: Enabled
+            AbortIncompleteMultipartUpload:
+              DaysAfterInitiation: 7
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 3. Bucket policy
+  # 1. No request without HTTPS.
+  # 2. Photo downloads (GetObject / GetObjectVersion) are refused unless they come through this
+  #    VPC's S3 gateway endpoint, i.e. from the application. A direct request from the internet,
+  #    or even from an administrator's laptop, is refused. Replication uses different actions
+  #    (GetObjectVersionForReplication), so it is not affected.
+  # 3. Nobody may permanently delete a photo version; only lifecycle rules expire old versions.
+  PhotoBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref PhotoBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt PhotoBucket.Arn
+              - !Sub '${PhotoBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: DenyPhotoReadsOutsideTheVpc
+            Effect: Deny
+            Principal: '*'
+            Action:
+              - s3:GetObject
+              - s3:GetObjectVersion
+            Resource: !Sub '${PhotoBucket.Arn}/*'
+            Condition:
+              StringNotEquals:
+                aws:SourceVpce:
+                  Fn::ImportValue: !Sub '${Project}-${Environment}-${Purpose}-s3-endpoint-id'
+          - Sid: DenyPermanentDelete
+            Effect: Deny
+            Principal: '*'
+            Action: s3:DeleteObjectVersion
+            Resource: !Sub '${PhotoBucket.Arn}/*'
+
+Outputs:
+  PhotoBucketName:
+    Value: !Ref PhotoBucket
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-bucket-name'
+  PhotoBucketArn:
+    Value: !GetAtt PhotoBucket.Arn
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-bucket-arn'

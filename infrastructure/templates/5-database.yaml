@@ -1,0 +1,148 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1: the relational database that holds each photo's details
+  (title, description, delivery reference, and the S3 key of the photo it describes).
+  Amazon RDS for PostgreSQL, Multi-AZ, in the isolated database subnets of eu-west-1.
+  The password is created and kept by RDS in AWS Secrets Manager; it never appears in code or Git.
+  Deployed by CloudFormation Git sync from infrastructure/deployments/dev/5-database.yaml.
+
+# Reading order: Parameters -> 1 Subnet group -> 2 Database instance -> Outputs
+#
+# The photo FILES are in S3; only their details are here. Each row stores the S3 object key
+# (and version) of its photo, which is the link between the record and the photo.
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+  EngineVersion:
+    Type: String
+    Default: '17'
+    Description: PostgreSQL major version; RDS picks the current default minor version.
+  InstanceClass:
+    Type: String
+    Default: db.t4g.micro
+  AllocatedStorageGb:
+    Type: Number
+    Default: 20
+    MinValue: 20
+  MaxAllocatedStorageGb:
+    Type: Number
+    Default: 50
+    Description: Storage autoscaling ceiling, so a growing table never fills the disk.
+  DatabaseName:
+    Type: String
+    Default: photos
+  MasterUsername:
+    Type: String
+    Default: photos_admin
+  BackupRetentionDays:
+    Type: Number
+    Default: 7
+    MinValue: 1
+    MaxValue: 35
+    Description: Point-in-time restore window for the photo details.
+  DeletionProtection:
+    Type: String
+    Default: 'true'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: Set to 'false' (and merge) only when tearing the lab down.
+
+Resources:
+  # ============================================================ 1. Subnet group
+  # Tells RDS which subnets it may use: the two isolated database subnets, one per zone.
+  DbSubnetGroup:
+    Type: AWS::RDS::DBSubnetGroup
+    Properties:
+      DBSubnetGroupName: !Sub '${Project}-${Environment}-${Purpose}-db-subnets'
+      DBSubnetGroupDescription: Isolated subnets for the photo database (no internet route)
+      SubnetIds: !Split
+        - ','
+        - Fn::ImportValue: !Sub '${Project}-${Environment}-${Purpose}-db-subnet-ids'
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 2. Database instance
+  # Multi-AZ: a standby in the second zone takes over automatically if the first zone fails.
+  # Not publicly accessible, in subnets with no internet route, reachable only from the containers' security group.
+  # ManageMasterUserPassword: RDS generates the password, stores it in Secrets Manager and rotates it.
+  # Backups: daily snapshots plus transaction logs give point-in-time restore for BackupRetentionDays.
+  # DeletionPolicy Snapshot: deleting or replacing the stack leaves a final snapshot, never nothing.
+  Database:
+    Type: AWS::RDS::DBInstance
+    DeletionPolicy: Snapshot
+    UpdateReplacePolicy: Snapshot
+    Properties:
+      DBInstanceIdentifier: !Sub '${Project}-${Environment}-${Purpose}-db'
+      Engine: postgres
+      EngineVersion: !Ref EngineVersion
+      DBInstanceClass: !Ref InstanceClass
+      DBName: !Ref DatabaseName
+      MasterUsername: !Ref MasterUsername
+      ManageMasterUserPassword: true
+      MultiAZ: true
+      PubliclyAccessible: false
+      DBSubnetGroupName: !Ref DbSubnetGroup
+      VPCSecurityGroups:
+        - Fn::ImportValue: !Sub '${Project}-${Environment}-${Purpose}-db-sg-id'
+      StorageType: gp3
+      AllocatedStorage: !Ref AllocatedStorageGb
+      MaxAllocatedStorage: !Ref MaxAllocatedStorageGb
+      StorageEncrypted: true
+      BackupRetentionPeriod: !Ref BackupRetentionDays
+      PreferredBackupWindow: '01:00-02:00'          # UTC, quiet hours in West Africa
+      PreferredMaintenanceWindow: 'sun:02:30-sun:03:30'
+      CopyTagsToSnapshot: true
+      DeletionProtection: !Ref DeletionProtection
+      AutoMinorVersionUpgrade: true
+      EnablePerformanceInsights: false
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-db'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  DatabaseEndpoint:
+    Description: Private DNS name; resolves only inside the VPC to a private address.
+    Value: !GetAtt Database.Endpoint.Address
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-endpoint'
+  DatabasePort:
+    Value: !GetAtt Database.Endpoint.Port
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-port'
+  DatabaseName:
+    Value: !Ref DatabaseName
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-name'
+  DatabaseSecretArn:
+    Description: Secrets Manager secret holding the username and password (managed by RDS).
+    Value: !GetAtt Database.MasterUserSecret.SecretArn
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-db-secret-arn'

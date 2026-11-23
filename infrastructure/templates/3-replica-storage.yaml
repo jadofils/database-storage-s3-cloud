@@ -1,0 +1,98 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1: the second copy of every delivery photo, in eu-west-2
+  (London). S3 replication copies each photo here from the primary bucket in eu-west-1, so the
+  photos survive the loss of the whole primary Region or of the primary bucket.
+  Deployed by CloudFormation Git sync in eu-west-2 from infrastructure/deployments/dev/3-replica-storage.yaml.
+  Create it before 4-storage: replication needs this bucket to exist.
+
+# Reading order: Parameters -> 1 Replica bucket -> 2 Bucket policy -> Outputs
+#
+# This bucket is a safe, not a shop window: nothing reads from it in normal operation,
+# nobody can permanently delete a photo version in it, and deletions in the primary bucket
+# are not copied here.
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+Resources:
+  # ============================================================ 1. Replica bucket
+  # Versioning is required on both sides of S3 replication. The bucket is kept (Retain) if the
+  # stack is deleted, because losing it would lose the disaster copy of every photo.
+  ReplicaBucket:
+    Type: AWS::S3::Bucket
+    DeletionPolicy: Retain
+    UpdateReplacePolicy: Retain
+    Properties:
+      BucketName: !Sub '${Project}-${Environment}-${Purpose}-replica-${AWS::AccountId}'
+      VersioningConfiguration:
+        Status: Enabled
+      BucketEncryption:
+        ServerSideEncryptionConfiguration:
+          - ServerSideEncryptionByDefault:
+              SSEAlgorithm: AES256
+      PublicAccessBlockConfiguration:
+        BlockPublicAcls: true
+        BlockPublicPolicy: true
+        IgnorePublicAcls: true
+        RestrictPublicBuckets: true
+      OwnershipControls:
+        Rules:
+          - ObjectOwnership: BucketOwnerEnforced
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}-replica'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 2. Bucket policy
+  # Refuses any request without HTTPS, and refuses permanent deletion of any photo version by
+  # anyone (including administrators), so the disaster copy cannot be wiped by mistake or attack.
+  ReplicaBucketPolicy:
+    Type: AWS::S3::BucketPolicy
+    Properties:
+      Bucket: !Ref ReplicaBucket
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: DenyInsecureTransport
+            Effect: Deny
+            Principal: '*'
+            Action: s3:*
+            Resource:
+              - !GetAtt ReplicaBucket.Arn
+              - !Sub '${ReplicaBucket.Arn}/*'
+            Condition:
+              Bool:
+                aws:SecureTransport: 'false'
+          - Sid: DenyPermanentDelete
+            Effect: Deny
+            Principal: '*'
+            Action: s3:DeleteObjectVersion
+            Resource: !Sub '${ReplicaBucket.Arn}/*'
+
+Outputs:
+  ReplicaBucketName:
+    Value: !Ref ReplicaBucket
+  ReplicaBucketArn:
+    Description: Exports do not cross Regions, so 4-storage builds this ARN from the same naming pattern.
+    Value: !GetAtt ReplicaBucket.Arn

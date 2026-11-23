@@ -1,0 +1,203 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: >
+  Onward Logistics - Week 5 Lab 1: image registry and keyless GitHub access for the delivery
+  photo application. The ECR repository that holds every released image, and the IAM role
+  GitHub Actions assumes with OIDC to push to it. Region eu-west-1.
+  Deployed by CloudFormation Git sync from infrastructure/deployments/dev/1-registry.yaml.
+
+# Reading order: Parameters -> 1 Image registry -> 2 Keyless access for GitHub Actions -> Outputs
+#
+# No long-lived credentials: GitHub receives a short-lived OIDC token per workflow run and
+# exchanges it for temporary credentials on one role that trusts only the main branch of the
+# application repository and may only push to this one repository.
+
+Parameters:
+  Project:
+    Type: String
+    Default: onward
+    AllowedPattern: '^[a-z0-9-]{2,12}$'
+  Owner:
+    Type: String
+    Default: Jado Fils SEZIKEYE
+  Environment:
+    Type: String
+    Default: dev
+    AllowedValues:
+      - dev
+      - test
+      - prod
+  Purpose:
+    Type: String
+    Default: photos
+
+  GitHubOwner:
+    Type: String
+    Default: jadofils
+    Description: GitHub user or organization that owns the application repository.
+  AppRepository:
+    Type: String
+    Default: week-5-lab-1-photos-app
+    Description: Application repository whose main branch may push images.
+  # GitHub issues tokens with an immutable subject (name@id). The numeric IDs never change, so a
+  # deleted and recreated repository with the same name cannot assume the role.
+  # Read them with: gh api repos/<owner>/<repo> --jq .id
+  GitHubOwnerId:
+    Type: String
+    Default: '114186160'
+    AllowedPattern: '^[0-9]+$'
+  AppRepositoryId:
+    Type: String
+    AllowedPattern: '^[0-9]+$'
+    Description: Numeric GitHub ID of AppRepository. '0' matches no repository (safe placeholder).
+  CreateGitHubOidcProvider:
+    Type: String
+    Default: 'false'
+    AllowedValues:
+      - 'true'
+      - 'false'
+    Description: An account holds one GitHub OIDC provider. 'false' reuses the existing one.
+
+  ImagesToKeep:
+    Type: Number
+    Default: 15
+    MinValue: 5
+    Description: Released (sha-*) images kept for rollback; older ones are expired.
+
+Conditions:
+  CreateOidcProvider: !Equals
+    - !Ref CreateGitHubOidcProvider
+    - 'true'
+
+Resources:
+  # ============================================================ 1. Image registry
+  # This repository stores the photo application's container images. Every tag is immutable
+  # except "latest", so a released sha-<commit> image can never be overwritten.
+  PhotosRepository:
+    Type: AWS::ECR::Repository
+    Properties:
+      RepositoryName: !Sub '${Project}-${Environment}-${Purpose}'
+      ImageTagMutability: IMMUTABLE_WITH_EXCLUSION
+      ImageTagMutabilityExclusionFilters:
+        - ImageTagMutabilityExclusionFilterType: WILDCARD
+          ImageTagMutabilityExclusionFilterValue: latest
+      ImageScanningConfiguration:
+        ScanOnPush: true
+      EncryptionConfiguration:
+        EncryptionType: AES256
+      LifecyclePolicy:
+        LifecyclePolicyText: !Sub |
+          {
+            "rules": [
+              {
+                "rulePriority": 1,
+                "description": "Remove untagged layers left by replaced tags after 7 days",
+                "selection": { "tagStatus": "untagged", "countType": "sinceImagePushed", "countUnit": "days", "countNumber": 7 },
+                "action": { "type": "expire" }
+              },
+              {
+                "rulePriority": 2,
+                "description": "Keep the last ${ImagesToKeep} released images for rollback",
+                "selection": { "tagStatus": "tagged", "tagPrefixList": ["sha-"], "countType": "imageCountMoreThan", "countNumber": ${ImagesToKeep} },
+                "action": { "type": "expire" }
+              }
+            ]
+          }
+      Tags:
+        - Key: Name
+          Value: !Sub '${Project}-${Environment}-${Purpose}'
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # ============================================================ 2. Keyless access for GitHub Actions
+  # GitHub's OIDC issuer. Created only if the account does not have it yet (one per account).
+  GitHubOidcProvider:
+    Type: AWS::IAM::OIDCProvider
+    Condition: CreateOidcProvider
+    Properties:
+      Url: https://token.actions.githubusercontent.com
+      ClientIdList:
+        - sts.amazonaws.com
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+  # This policy lets the build push images to this one repository and nothing else.
+  # A customer managed policy, never an inline one.
+  EcrPushPolicy:
+    Type: AWS::IAM::ManagedPolicy
+    Properties:
+      ManagedPolicyName: !Sub '${Project}-${Environment}-${Purpose}-ecr-push-policy'
+      Description: Lets the photo application build push images to its repository and nothing else.
+      PolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Sid: SignInToRegistry
+            Effect: Allow
+            Action: ecr:GetAuthorizationToken
+            Resource: '*'
+          - Sid: PushToPhotosRepository
+            Effect: Allow
+            Action:
+              - ecr:BatchCheckLayerAvailability
+              - ecr:BatchGetImage
+              - ecr:CompleteLayerUpload
+              - ecr:DescribeImages
+              - ecr:GetDownloadUrlForLayer
+              - ecr:InitiateLayerUpload
+              - ecr:PutImage
+              - ecr:UploadLayerPart
+            Resource: !GetAtt PhotosRepository.Arn
+
+  # This role is what GitHub Actions becomes in AWS. It trusts only workflow runs on the main
+  # branch of the application repository: pull requests, other branches and forks cannot use it.
+  GitHubActionsRole:
+    Type: AWS::IAM::Role
+    Properties:
+      RoleName: !Sub '${Project}-${Environment}-${Purpose}-github-actions-role'
+      Description: Assumed by GitHub Actions with OIDC to push photo-app images. No access keys.
+      MaxSessionDuration: 3600
+      AssumeRolePolicyDocument:
+        Version: '2012-10-17'
+        Statement:
+          - Effect: Allow
+            Principal:
+              Federated: !If
+                - CreateOidcProvider
+                - !Ref GitHubOidcProvider
+                - !Sub 'arn:${AWS::Partition}:iam::${AWS::AccountId}:oidc-provider/token.actions.githubusercontent.com'
+            Action: sts:AssumeRoleWithWebIdentity
+            Condition:
+              StringEquals:
+                token.actions.githubusercontent.com:aud: sts.amazonaws.com
+                token.actions.githubusercontent.com:sub: !Sub 'repo:${GitHubOwner}@${GitHubOwnerId}/${AppRepository}@${AppRepositoryId}:ref:refs/heads/main'
+      ManagedPolicyArns:
+        - !Ref EcrPushPolicy
+      Tags:
+        - Key: Project
+          Value: !Ref Project
+        - Key: Owner
+          Value: !Ref Owner
+        - Key: Environment
+          Value: !Ref Environment
+
+Outputs:
+  RepositoryName:
+    Value: !Ref PhotosRepository
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-repository-name'
+  RepositoryUri:
+    Description: Where GitHub Actions pushes images and ECS pulls them from (through VPC endpoints).
+    Value: !GetAtt PhotosRepository.RepositoryUri
+    Export:
+      Name: !Sub '${Project}-${Environment}-${Purpose}-repository-uri'
+  GitHubActionsRoleArn:
+    Description: Set as the AWS_ROLE_ARN variable (not a secret) in the application repository.
+    Value: !GetAtt GitHubActionsRole.Arn
