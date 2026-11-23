@@ -52,7 +52,7 @@ More detail, including the photo flow diagram, is in [docs/architecture](docs/ar
 2. **Bootstrap, eu-west-2.** Same template, same stack name, in London, with `CreateGitSyncRole = false`. The role is global and already exists.
 3. **Approve both connections.** Developer Tools → Settings → Connections, in each Region: *Update pending connection*, then give access to both repositories.
 4. **App repository ID.** Run `gh api repos/jadofils/aws-db-s3-storage-app --jq .id` and put the number in `AppRepositoryId` in [deployments/dev/1-registry.yaml](infrastructure/deployments/dev/1-registry.yaml).
-5. **Create the stacks with Git sync**, in the order above: *Create stack → Sync from Git*, repository `week-5-lab-1-photos-infra`, branch `main`, the deployment file of that stack, and role `onward-dev-photos-gitsync-role`. Create stack 3 from the **eu-west-2** console.
+5. **Create the stacks with Git sync**, in the order above: *Create stack → Sync from Git*, repository `database-storage-s3-cloud`, branch `main`, the deployment file of that stack, and role `onward-dev-photos-gitsync-role`. Create stack 3 from the **eu-west-2** console.
 6. **First image.** After stack 1:
    - In the app repository, set the variables `AWS_ROLE_ARN` (the registry stack's output `GitHubActionsRoleArn`) and `AWS_REGION=eu-west-1`.
    - Run **Build and push image** from the Actions tab.
