@@ -65,17 +65,17 @@ aws rds describe-db-instances --db-instance-identifier onward-dev-photos-db --qu
 
 ```bash
 aws s3api head-object --bucket $BUCKET --key "$KEY" --query ReplicationStatus          # COMPLETED
-aws s3api head-object --bucket $REPLICA --key "$KEY" --region eu-west-2 --query '[StorageClass,ContentLength]'
+aws s3api head-object --bucket $REPLICA --key "$KEY" --region eu-central-1 --query '[StorageClass,ContentLength]'
 ```
 
-**Protected if Ireland is lost:** every photo (London copy, deletions not replicated).
+**Protected if Ireland is lost:** every photo (Frankfurt copy, deletions not replicated).
 
 **Not protected:**
 - the photo *details* in RDS (latest snapshot only, same Region);
 - the running application;
 - uploads made in the last few minutes before the failure, if they had not yet replicated.
 
-To recover, the stacks can be rebuilt from Git in another Region, pointing at the London bucket.
+To recover, the stacks can be rebuilt from Git in another Region, pointing at the Frankfurt bucket.
 
 ## 7. The application keeps working if a container or an Availability Zone is lost
 

@@ -18,8 +18,8 @@
 | Amazon RDS for PostgreSQL | Photo details | `db.t4g.micro`, **Multi-AZ**; 20 GB gp3; backup storage up to the database size (no extra charge) |
 | AWS Secrets Manager | Holds the database password | 1 secret |
 | Amazon S3, Standard / Intelligent-Tiering (Ireland) | Primary photo bucket | Expected GB of photos; PUT requests = uploads per month; GET requests = cache misses only |
-| Amazon S3, Glacier Instant Retrieval (**London** `eu-west-2`) | Replica photo bucket | Same GB as the primary |
-| S3 Cross-Region Replication | Copies photos to London | Data transfer inter-Region: GB uploaded per month |
+| Amazon S3, Glacier Instant Retrieval (**Frankfurt** `eu-central-1`) | Replica photo bucket | Same GB as the primary |
+| S3 Cross-Region Replication | Copies photos to Frankfurt | Data transfer inter-Region: GB uploaded per month |
 | Amazon CloudFront | Serves photos from the edge | Data transfer out to the internet: GB viewed per month; HTTPS requests per month; regions Europe and Africa |
 | Amazon VPC | Interface endpoints | 4 interface endpoints (`ecr.api`, `ecr.dkr`, `logs`, `secretsmanager`) × 2 Availability Zones; data processed |
 | Amazon CloudWatch | Container logs | Logs ingested (GB) with 14-day retention |
@@ -43,7 +43,7 @@ GitHub Actions runs outside AWS.
 | Fargate (2 tasks all month) | 0.5 vCPU / 1 GB per task, `MaxTasks: 4` caps busy days, and scaling adds tasks only when CPU passes 50%. |
 | RDS Multi-AZ | The smallest Graviton class (`db.t4g.micro`) with storage autoscaling up to 50 GB, so I only pay for what is used. |
 | Photo storage growth | Photos move to **Intelligent-Tiering** after 30 days, which lowers the price of photos nobody views. Deleted versions expire after 90 days in the primary bucket. |
-| The copy in London | **Glacier Instant Retrieval**, the cheapest class that still returns a photo in milliseconds in a disaster. |
+| The copy in Frankfurt | **Glacier Instant Retrieval**, the cheapest class that still returns a photo in milliseconds in a disaster. |
 | Viewing growth | **CloudFront cache**: repeat views do not reach the ALB, the containers or S3. Data from the ALB to CloudFront is free. |
 | Interface endpoints | Billed per hour per zone. They still cost less than a NAT gateway, and they keep the containers off the internet. |
 | Logs | 14-day retention; Container Insights off. |

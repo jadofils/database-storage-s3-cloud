@@ -1,5 +1,5 @@
 # CloudFormation Git sync deployment file for stack "onward-dev-photos-storage" (eu-west-1).
-# Needs onward-dev-photos-network (S3 endpoint ID) and onward-dev-photos-replica-storage (eu-west-2).
+# Needs onward-dev-photos-network (S3 endpoint ID) and onward-dev-photos-replica-storage (eu-central-1).
 template-file-path: infrastructure/templates/4-storage.yaml
 
 parameters:
@@ -8,7 +8,7 @@ parameters:
   Environment: dev
   Purpose: photos
 
-  # Every photo is copied to the replica bucket in London (eu-west-2); the copy is read only in a disaster.
+  # Every photo is copied to the replica bucket in Frankfurt (eu-central-1); the copy is read only in a disaster.
   ReplicaStorageClass: GLACIER_IR
   # A deleted or replaced photo can be restored from the primary bucket for 90 days.
   DeletedVersionRetentionDays: '90'

@@ -56,8 +56,8 @@ The app streams photos from `/api/photos/<id>/image`. The browser never learns t
 
 ## D5. Every photo survives the loss of a Region or of the bucket
 
-**Decision:** **S3 Cross-Region Replication** from Ireland to London. Both buckets are versioned.
-- **Delete markers are not replicated**, so a deletion in Ireland never removes the London copy.
+**Decision:** **S3 Cross-Region Replication** from Ireland to Frankfurt. Both buckets are versioned.
+- **Delete markers are not replicated**, so a deletion in Ireland never removes the Frankfurt copy.
 - Both bucket policies deny `s3:DeleteObjectVersion` to everyone, so no person or attacker can permanently delete a photo version. Only lifecycle rules expire old versions, and only in the primary bucket.
 - The replica uses **S3 Glacier Instant Retrieval**: the copy is read only in a disaster, and this class still returns a photo in milliseconds.
 
@@ -70,7 +70,7 @@ The app streams photos from `/api/photos/<id>/image`. The browser never learns t
 ## D6. Recovery from accidental deletion
 
 **Decision:**
-- **Photos:** S3 versioning. A deleted photo is kept as a previous version for 90 days in Ireland, and indefinitely in London. The app's *Restore* button copies that version back. The app has no permission to delete versions.
+- **Photos:** S3 versioning. A deleted photo is kept as a previous version for 90 days in Ireland, and indefinitely in Frankfurt. The app's *Restore* button copies that version back. The app has no permission to delete versions.
 - **Details:** rows are soft-deleted (`deleted_at`), so *Restore* brings them back. For a mistake made in the database itself, RDS point-in-time restore goes back to any second in the last 7 days.
 
 ## D7. High availability

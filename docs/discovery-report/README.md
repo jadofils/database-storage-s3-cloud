@@ -47,7 +47,7 @@ Onward needs to keep every rider's delivery photo safe for as long as it is need
 ### My chosen approach
 
 I chose **object storage plus a database**:
-- photos are stored in a private, versioned S3 bucket in Ireland, and copied automatically to a second bucket in London;
+- photos are stored in a private, versioned S3 bucket in Ireland, and copied automatically to a second bucket in Frankfurt;
 - their details are kept in a managed PostgreSQL database;
 - one containerized application is the only way in. It uploads photos, lists them and streams them to viewers through CloudFront.
 
@@ -61,7 +61,7 @@ This suits Onward better than the other options because:
 | Service | The job it does | Why this service, used this way |
 | --- | --- | --- |
 | Amazon S3 (Ireland) | Holds the photo files | Durable and cheap per GB. **Versioning** keeps deleted photos. **Block Public Access** plus a bucket policy that allows downloads only through the VPC endpoint means no direct access. Old photos move to **Intelligent-Tiering** to lower cost. |
-| S3 Cross-Region Replication → S3 (London) | Second copy of every photo | Survives the loss of the Region or the bucket. Deletions are **not** replicated, and nobody may permanently delete a version. The copy uses **Glacier Instant Retrieval**, which is cheap but still instant in a disaster. |
+| S3 Cross-Region Replication → S3 (Frankfurt) | Second copy of every photo | Survives the loss of the Region or the bucket. Deletions are **not** replicated, and nobody may permanently delete a version. The copy uses **Glacier Instant Retrieval**, which is cheap but still instant in a disaster. |
 | Amazon RDS for PostgreSQL | Photo details, linked to each photo's S3 key | Managed, not self-managed. **Multi-AZ** survives the loss of a zone. **7-day point-in-time restore** covers mistakes. It sits in isolated subnets and is not publicly accessible. |
 | AWS Secrets Manager | Holds the database password | RDS creates and rotates the password, and the app reads it at runtime with its IAM role. No password exists in code or Git. |
 | Amazon ECS on AWS Fargate | Runs the application | No servers to manage. Two or more tasks in private subnets across two zones, with automatic replacement and scaling. |
@@ -78,14 +78,14 @@ This suits Onward better than the other options because:
 | --- | --- | --- |
 | Chief Technology Officer | Photos load quickly in every city, however many people view them. | The second request for a photo shows `Hit from cloudfront`. The app keeps answering when a task or a zone is stopped. |
 | Head of Security | Photos are seen only through Onward's system; there are no credentials in code and no public database. | A direct S3 request returns 403, even for an administrator. The database has `PubliclyAccessible = false`. gitleaks passes on both repositories. |
-| Head of Operations | No photo is ever lost, even if a Region or the bucket is lost, and deletions can be undone. | A photo uploaded today has `ReplicationStatus = COMPLETED` and exists in London. A deleted photo is restored from the app. |
+| Head of Operations | No photo is ever lost, even if a Region or the bucket is lost, and deletions can be undone. | A photo uploaded today has `ReplicationStatus = COMPLETED` and exists in Frankfurt. A deleted photo is restored from the app. |
 | Finance Lead | Clear, controlled cost that grows slowly with photos and views. | The AWS Pricing Calculator estimate is linked in the cost page. Budget alerts are active. |
 | Merchants and customers | Their photos are safe, private and quick to open on mobile connections. | Fewer disputes left unresolved for lack of evidence, and no leaked photos. |
 
 ### Limits and risks of my design
 
-- **One Region for details:** if Ireland is lost, the photo *details* in RDS are not in London. The photos are, and they can be matched again by delivery reference from the key and object metadata. Copying RDS snapshots to London would close this gap.
-- **Replication is not instant:** a photo uploaded seconds before a Regional failure may not be in London yet. S3 Replication Time Control would guarantee 15 minutes, at extra cost.
+- **One Region for details:** if Ireland is lost, the photo *details* in RDS are not in Frankfurt. The photos are, and they can be matched again by delivery reference from the key and object metadata. Copying RDS snapshots to Frankfurt would close this gap.
+- **Replication is not instant:** a photo uploaded seconds before a Regional failure may not be in Frankfurt yet. S3 Replication Time Control would guarantee 15 minutes, at extra cost.
 - **No sign-in:** anyone with the application URL can view the gallery. The lab does not require sign-in, but production needs it, and then signed cookies on CloudFront.
 - **Edge cache after deletion:** a deleted photo can still be served from a CloudFront edge for up to a day, unless the cache is invalidated.
 - **Origin traffic:** CloudFront reaches the ALB over HTTP inside AWS, because there is no custom domain or certificate in this lab. Viewers always use HTTPS.

@@ -1,16 +1,16 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Onward Logistics - Week 5 Lab 1: the primary store for delivery photos in eu-west-1.
-  A private, versioned S3 bucket that copies every photo to the replica bucket in eu-west-2,
+  A private, versioned S3 bucket that copies every photo to the replica bucket in eu-central-1,
   and refuses photo downloads that do not come from the application inside the VPC.
   Deployed by CloudFormation Git sync from infrastructure/deployments/dev/4-storage.yaml.
-  Needs 2-network (endpoint ID) and 3-replica-storage (in eu-west-2) first.
+  Needs 2-network (endpoint ID) and 3-replica-storage (in eu-central-1) first.
 
 # Reading order: Parameters -> 1 Replication role -> 2 Photo bucket -> 3 Bucket policy -> Outputs
 #
 # How each Head of Operations / Head of Security need is met here:
 #   deleted by mistake   -> versioning: a delete only adds a "delete marker"; the photo stays as an older version
-#   bucket or Region lost -> replication to eu-west-2; deletions are NOT replicated
+#   bucket or Region lost -> replication to eu-central-1; deletions are NOT replicated
 #   no direct access      -> Block Public Access + policy: downloads only through the VPC endpoint
 #   no wiping             -> nobody may permanently delete a photo version
 

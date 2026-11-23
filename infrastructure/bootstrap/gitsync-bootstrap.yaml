@@ -2,7 +2,7 @@ AWSTemplateFormatVersion: '2010-09-09'
 Description: >
   Onward Logistics - Week 5 Lab 1 (delivery photos) one-time Git sync bootstrap. Creates the
   GitHub connection and the role CloudFormation Git sync uses to deploy every other stack.
-  Deployed by hand twice: in eu-west-1 (CreateGitSyncRole 'true') and in eu-west-2 for the
+  Deployed by hand twice: in eu-west-1 (CreateGitSyncRole 'true') and in eu-central-1 for the
   replica bucket (CreateGitSyncRole 'false', the role is global and already exists).
 
 # Why this file is in infrastructure/bootstrap/ and not in infrastructure/templates/:

@@ -1,9 +1,9 @@
 AWSTemplateFormatVersion: '2010-09-09'
 Description: >
-  Onward Logistics - Week 5 Lab 1: the second copy of every delivery photo, in eu-west-2
-  (London). S3 replication copies each photo here from the primary bucket in eu-west-1, so the
+  Onward Logistics - Week 5 Lab 1: the second copy of every delivery photo, in eu-central-1
+  (Frankfurt). S3 replication copies each photo here from the primary bucket in eu-west-1, so the
   photos survive the loss of the whole primary Region or of the primary bucket.
-  Deployed by CloudFormation Git sync in eu-west-2 from infrastructure/deployments/dev/3-replica-storage.yaml.
+  Deployed by CloudFormation Git sync in eu-central-1 from infrastructure/deployments/dev/3-replica-storage.yaml.
   Create it before 4-storage: replication needs this bucket to exist.
 
 # Reading order: Parameters -> 1 Replica bucket -> 2 Bucket policy -> Outputs

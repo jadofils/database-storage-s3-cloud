@@ -5,7 +5,7 @@ Infrastructure repository. Everything in AWS is created by CloudFormation, deplo
 | | |
 | --- | --- |
 | Primary Region | `eu-west-1` (Ireland): network, application, database, photos |
-| Second Region | `eu-west-2` (London): a copy of every photo only |
+| Second Region | `eu-central-1` (Frankfurt): a copy of every photo only |
 | Naming | `onward-dev-photos-*` (company pattern `onward-<env>-<purpose>`) |
 | Tags | `Project=onward`, `Owner=Jado Fils SEZIKEYE`, `Environment=dev` on every resource that supports tags |
 
@@ -13,7 +13,7 @@ Infrastructure repository. Everything in AWS is created by CloudFormation, deplo
 
 ```
 Upload:  browser ──HTTPS──> CloudFront ──> ALB (public subnets) ──> ECS Fargate task (private subnets)
-                                                                      ├─> S3 photo bucket (via gateway endpoint)  ──replication──> replica bucket (eu-west-2)
+                                                                      ├─> S3 photo bucket (via gateway endpoint)  ──replication──> replica bucket (eu-central-1)
                                                                       └─> RDS PostgreSQL (isolated subnets): title, description, delivery ref, S3 key
 View:    browser ──HTTPS──> CloudFront edge (cached photo)  ── on a miss ──> ALB ──> task ──> S3
 ```
@@ -40,7 +40,7 @@ More detail, including the photo flow diagram, is in [docs/architecture](docs/ar
 | --- | --- | --- | --- | --- |
 | 1 | `onward-dev-photos-registry` | eu-west-1 | [1-registry.yaml](infrastructure/templates/1-registry.yaml) | n/a |
 | 2 | `onward-dev-photos-network` | eu-west-1 | [2-network.yaml](infrastructure/templates/2-network.yaml) | n/a |
-| 3 | `onward-dev-photos-replica-storage` | **eu-west-2** | [3-replica-storage.yaml](infrastructure/templates/3-replica-storage.yaml) | n/a |
+| 3 | `onward-dev-photos-replica-storage` | **eu-central-1** | [3-replica-storage.yaml](infrastructure/templates/3-replica-storage.yaml) | n/a |
 | 4 | `onward-dev-photos-storage` | eu-west-1 | [4-storage.yaml](infrastructure/templates/4-storage.yaml) | 2, 3 |
 | 5 | `onward-dev-photos-database` | eu-west-1 | [5-database.yaml](infrastructure/templates/5-database.yaml) | 2 |
 | 6 | `onward-dev-photos-service` | eu-west-1 | [6-service.yaml](infrastructure/templates/6-service.yaml) | 1 (an image), 2, 4, 5 |
@@ -49,10 +49,10 @@ More detail, including the photo flow diagram, is in [docs/architecture](docs/ar
 ## Setting it up from nothing
 
 1. **Bootstrap, eu-west-1.** CloudFormation console → create stack `onward-dev-photos-gitsync-bootstrap` from [gitsync-bootstrap.yaml](infrastructure/bootstrap/gitsync-bootstrap.yaml) with `CreateGitSyncRole = true`.
-2. **Bootstrap, eu-west-2.** Same template, same stack name, in London, with `CreateGitSyncRole = false`. The role is global and already exists.
+2. **Bootstrap, eu-central-1.** Same template, same stack name, in Frankfurt, with `CreateGitSyncRole = false`. The role is global and already exists.
 3. **Approve both connections.** Developer Tools → Settings → Connections, in each Region: *Update pending connection*, then give access to both repositories.
 4. **App repository ID.** Run `gh api repos/jadofils/aws-db-s3-storage-app --jq .id` and put the number in `AppRepositoryId` in [deployments/dev/1-registry.yaml](infrastructure/deployments/dev/1-registry.yaml).
-5. **Create the stacks with Git sync**, in the order above: *Create stack → Sync from Git*, repository `database-storage-s3-cloud`, branch `main`, the deployment file of that stack, and role `onward-dev-photos-gitsync-role`. Create stack 3 from the **eu-west-2** console.
+5. **Create the stacks with Git sync**, in the order above: *Create stack → Sync from Git*, repository `database-storage-s3-cloud`, branch `main`, the deployment file of that stack, and role `onward-dev-photos-gitsync-role`. Create stack 3 from the **eu-central-1** console.
 6. **First image.** After stack 1:
    - In the app repository, set the variables `AWS_ROLE_ARN` (the registry stack's output `GitHubActionsRoleArn`) and `AWS_REGION=eu-west-1`.
    - Run **Build and push image** from the Actions tab.

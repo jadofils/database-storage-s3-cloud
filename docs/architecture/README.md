@@ -5,7 +5,7 @@
 | Region | What is there | Why |
 | --- | --- | --- |
 | `eu-west-1` Ireland (primary) | VPC, ALB, ECS Fargate, RDS PostgreSQL, photo bucket, ECR, CloudFront origin | Everything the service needs to run. The lab keeps the app and database in one Region. |
-| `eu-west-2` London (second) | Replica photo bucket only | Only the photos need to survive the loss of a Region. London is the nearest other EU Region, so the copy stays under the same data rules. |
+| `eu-central-1` Frankfurt (second) | Replica photo bucket only | Only the photos need to survive the loss of a Region. Frankfurt keeps the copy in the EU, under the same data rules. London and Paris are closer, but this lab account's organization policy does not allow them. |
 
 ## Network in eu-west-1 (VPC `10.20.0.0/16`, two Availability Zones)
 
@@ -36,7 +36,7 @@
 3. The ALB forwards it to a **Fargate task** in a private subnet.
 4. The task generates a key `photos/<yyyy>/<MM>/<uuid>.<ext>` and puts the file in the **S3 photo bucket**, through the gateway endpoint. S3 returns a version ID.
 5. The task writes a row to **RDS** with the title, description, delivery reference, city, who uploaded it, and the S3 key and version. The key links the record to its photo.
-6. **S3 replication** copies the new photo to the **replica bucket in eu-west-2**, usually within minutes.
+6. **S3 replication** copies the new photo to the **replica bucket in eu-central-1**, usually within minutes.
 
 **View**
 1. The gallery page asks `/api/photos` for the list (details from RDS, never cached).
@@ -47,7 +47,7 @@
 **Delete and restore**
 - Deleting adds an S3 delete marker and sets `deleted_at` on the row. Nothing is erased.
 - Restoring copies the remembered S3 version back over the delete marker and clears `deleted_at`.
-- Delete markers are not replicated, so the London copy is never affected.
+- Delete markers are not replicated, so the Frankfurt copy is never affected.
 
 ## Diagram
 

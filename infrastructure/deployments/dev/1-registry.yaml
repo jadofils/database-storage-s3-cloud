@@ -1,5 +1,5 @@
 # CloudFormation Git sync deployment file for stack "onward-dev-photos-registry" (eu-west-1).
-# Stack order: registry -> network -> replica-storage (eu-west-2) -> storage -> database -> service -> cdn.
+# Stack order: registry -> network -> replica-storage (eu-central-1) -> storage -> database -> service -> cdn.
 # Create it first: the service imports the repository, and ECS needs an image in it to start.
 template-file-path: infrastructure/templates/1-registry.yaml
 
