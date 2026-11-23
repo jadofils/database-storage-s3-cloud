@@ -36,7 +36,7 @@ Parameters:
     Description: GitHub user or organization that owns the application repository.
   AppRepository:
     Type: String
-    Default: week-5-lab-1-photos-app
+    Default: aws-db-s3-storage-app
     Description: Application repository whose main branch may push images.
   # GitHub issues tokens with an immutable subject (name@id). The numeric IDs never change, so a
   # deleted and recreated repository with the same name cannot assume the role.

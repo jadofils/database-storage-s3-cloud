@@ -12,10 +12,9 @@ parameters:
   # Only the main branch of this repository may push images (GitHub OIDC, no access keys).
   GitHubOwner: jadofils
   GitHubOwnerId: '114186160'
-  AppRepository: week-5-lab-1-photos-app
-  # Replace with: gh api repos/jadofils/week-5-lab-1-photos-app --jq .id
-  # '0' matches no repository, so nothing can push until the real ID is set.
-  AppRepositoryId: '0'
+  AppRepository: aws-db-s3-storage-app
+  # From: gh api repos/jadofils/aws-db-s3-storage-app --jq .id
+  AppRepositoryId: '1469041303'
   # This account already has the token.actions.githubusercontent.com provider.
   CreateGitHubOidcProvider: 'false'
 

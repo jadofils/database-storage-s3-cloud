@@ -1,6 +1,6 @@
 # Onward Logistics: Storing and Serving Delivery Photos (Week 5, Lab 1)
 
-Infrastructure repository. Everything in AWS is created by CloudFormation, deployed by **CloudFormation Git sync** from this repository. The application code lives in a separate repository: [week-5-lab-1-photos-app](https://github.com/jadofils/week-5-lab-1-photos-app).
+Infrastructure repository. Everything in AWS is created by CloudFormation, deployed by **CloudFormation Git sync** from this repository. The application code lives in a separate repository: [aws-db-s3-storage-app](https://github.com/jadofils/aws-db-s3-storage-app).
 
 | | |
 | --- | --- |
@@ -51,7 +51,7 @@ More detail, including the photo flow diagram, is in [docs/architecture](docs/ar
 1. **Bootstrap, eu-west-1.** CloudFormation console → create stack `onward-dev-photos-gitsync-bootstrap` from [gitsync-bootstrap.yaml](infrastructure/bootstrap/gitsync-bootstrap.yaml) with `CreateGitSyncRole = true`.
 2. **Bootstrap, eu-west-2.** Same template, same stack name, in London, with `CreateGitSyncRole = false`. The role is global and already exists.
 3. **Approve both connections.** Developer Tools → Settings → Connections, in each Region: *Update pending connection*, then give access to both repositories.
-4. **App repository ID.** Run `gh api repos/jadofils/week-5-lab-1-photos-app --jq .id` and put the number in `AppRepositoryId` in [deployments/dev/1-registry.yaml](infrastructure/deployments/dev/1-registry.yaml).
+4. **App repository ID.** Run `gh api repos/jadofils/aws-db-s3-storage-app --jq .id` and put the number in `AppRepositoryId` in [deployments/dev/1-registry.yaml](infrastructure/deployments/dev/1-registry.yaml).
 5. **Create the stacks with Git sync**, in the order above: *Create stack → Sync from Git*, repository `week-5-lab-1-photos-infra`, branch `main`, the deployment file of that stack, and role `onward-dev-photos-gitsync-role`. Create stack 3 from the **eu-west-2** console.
 6. **First image.** After stack 1:
    - In the app repository, set the variables `AWS_ROLE_ARN` (the registry stack's output `GitHubActionsRoleArn`) and `AWS_REGION=eu-west-1`.

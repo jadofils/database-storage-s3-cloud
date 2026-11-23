@@ -25,7 +25,7 @@ aws ec2 describe-security-groups --filters Name=group-name,Values=onward-dev-pho
   --query 'SecurityGroups[0].IpPermissions'
 ```
 
-The endpoint name resolves to a private `10.20.20.x` / `10.20.21.x` address. The database route table has no internet route. The table holds `object_key` (text), never the image bytes: see [V1__create_photo.sql](https://github.com/jadofils/week-5-lab-1-photos-app/blob/main/app/src/main/resources/db/migration/V1__create_photo.sql).
+The endpoint name resolves to a private `10.20.20.x` / `10.20.21.x` address. The database route table has no internet route. The table holds `object_key` (text), never the image bytes: see [V1__create_photo.sql](https://github.com/jadofils/aws-db-s3-storage-app/blob/main/app/src/main/resources/db/migration/V1__create_photo.sql).
 
 ## 3. A direct request to the storage location is refused
 
