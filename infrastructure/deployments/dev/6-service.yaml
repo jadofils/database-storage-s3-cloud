@@ -9,7 +9,7 @@ parameters:
   Purpose: photos
 
   # RELEASE: set to the sha-<commit> tag the app's CD workflow pushed, then merge.
-  ImageTag: latest
+  ImageTag: sha-d9be323
 
   # Containers: 0.5 vCPU / 1 GB each; 2 normally (one per zone), up to 4 on busy days.
   TaskCpu: '512'
