@@ -51,4 +51,12 @@
 
 ## Diagram
 
-The draw.io diagram with AWS icons (both Regions, public and private, and the upload and view flows) goes in this folder as `architecture.drawio`, with PNG exports.
+Editable source: [architecture.drawio](architecture.drawio) (open in [diagrams.net](https://app.diagrams.net)). It uses the official AWS architecture icons.
+
+**Page 1: resources in both Regions, public and private**
+
+![Resources in both Regions](architecture-1.png)
+
+**Page 2: how a photo flows (upload, view, delete/restore) and how releases happen**
+
+![Photo flow and releases](architecture-2.png)

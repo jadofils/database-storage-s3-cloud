@@ -20,6 +20,10 @@ View:    browser ──HTTPS──> CloudFront edge (cached photo)  ── on a 
 
 The bucket is never reachable directly: Block Public Access is on, and the bucket policy refuses photo downloads that do not come through the VPC's S3 endpoint.
 
+![Resources in both Regions](docs/architecture/architecture-1.png)
+
+More detail, including the photo flow diagram, is in [docs/architecture](docs/architecture/README.md).
+
 ## Repository layout (separation of concerns)
 
 | Folder | What it holds | Deployed by |
